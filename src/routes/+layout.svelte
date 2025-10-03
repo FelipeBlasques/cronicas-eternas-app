@@ -9,10 +9,18 @@
 	import { registerShortcuts } from "$scripts/shortcuts.svelte.js";
 	import * as Tabs from "$lib/components/ui/tabs/index.js";
 
+	import { onMount } from "svelte";
+	import { markUiReady } from "$lib/deeplink";
+
+	// Svelte 5: pega a função children() via $props()
 	let { children } = $props();
 	let tab = $state<"join" | "launch">("join");
 
 	registerShortcuts();
+
+	onMount(() => {
+		markUiReady(); // ativa o listener e processa deep links pendentes
+	});
 </script>
 
 <ModeWatcher />

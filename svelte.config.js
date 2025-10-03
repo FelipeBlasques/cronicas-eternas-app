@@ -8,7 +8,15 @@ import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 const config = {
 	preprocess: vitePreprocess(),
 	kit: {
-		adapter: adapter(),
+		adapter: adapter({
+			pages: 'build',
+			assets: 'build',
+			fallback: 'index.html' // bom fallback SPA
+		  }),
+		
+		paths: { base: '' },
+		prerender: { entries: ['*'] },
+
 		alias: {
 			"$assets/*": "src/lib/assets/*",
 			"$components/*": "src/lib/components/*",
@@ -20,3 +28,4 @@ const config = {
 };
 
 export default config;
+
