@@ -1,5 +1,15 @@
 use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Url, WebviewUrl};
+
+// Crônicas Eternas: aplicativo do grupo, baseado no FLC (Foundry Lightweight Client)
+// de Phenomen, licença MIT. A janela principal abre o portal; quando o portal manda
+// o jogador para o Foundry, o jogo abre numa janela própria e o portal continua aberto.
+
+/// Endereço do portal, que abre na janela principal
+const PORTAL: &str = "https://cronicaseternas.com";
+
+/// Endereço do Foundry: navegações para cá abrem na janela do jogo
+const HOST_FOUNDRY: &str = "vtt.cronicaseternas.com";
 
 #[tauri::command]
 fn read_text_file(path: String) -> Result<String, String> {
@@ -57,6 +67,63 @@ async fn open_webview(
     Ok(())
 }
 
+/// Abre o Foundry na janela do jogo. Se ela já existir, só troca o endereço e traz para a frente.
+fn abrir_jogo(app: &AppHandle, url: Url) {
+    if let Some(janela) = app.get_webview_window("jogo") {
+        let _ = janela.navigate(url);
+        let _ = janela.unminimize();
+        let _ = janela.set_focus();
+        return;
+    }
+
+    let resultado = WebviewWindowBuilder::new(app, "jogo", WebviewUrl::External(url))
+        .title("Crônicas Eternas: Foundry")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(800.0, 600.0)
+        .maximized(true)
+        .focused(true)
+        .devtools(true)
+        .disable_drag_drop_handler()
+        .general_autofill_enabled(false)
+        .zoom_hotkeys_enabled(true)
+        .on_new_window(|_url, _features| {
+            // O Foundry abre janelas extras (fichas destacadas, por exemplo)
+            NewWindowResponse::Allow
+        })
+        .build();
+
+    if let Err(erro) = resultado {
+        eprintln!("Não foi possível abrir a janela do jogo: {erro}");
+    }
+}
+
+/// Cria a janela principal já no portal
+fn criar_janela_principal(app: &AppHandle) -> tauri::Result<()> {
+    let portal: Url = PORTAL.parse().expect("endereço do portal inválido");
+    let handle = app.clone();
+
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(portal))
+        .title("Crônicas Eternas")
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(800.0, 600.0)
+        .center()
+        .disable_drag_drop_handler()
+        .zoom_hotkeys_enabled(true)
+        .on_navigation(move |url| {
+            if url.host_str() == Some(HOST_FOUNDRY) {
+                let handle = handle.clone();
+                let url = url.clone();
+                // Cria a janela fora deste evento, para não travar no Windows
+                tauri::async_runtime::spawn(async move { abrir_jogo(&handle, url) });
+                return false; // o portal continua na janela principal
+            }
+            true
+        })
+        .build()?;
+
+    Ok(())
+}
+
 #[cfg(not(mobile))]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -84,7 +151,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
@@ -92,6 +158,10 @@ pub fn run() {
             read_text_file,
             write_text_file
         ])
+        .setup(|app| {
+            criar_janela_principal(app.handle())?;
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
