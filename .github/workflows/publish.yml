@@ -54,14 +54,10 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: flc-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
-          releaseName: "FLC v__VERSION__"
-          releaseBody: "See the assets to download and install this version."
+          tagName: v__VERSION__ # a ação troca __VERSION__ pela versão do aplicativo
+          releaseName: "Crônicas Eternas v__VERSION__"
+          releaseBody: "Baixe o instalador do seu sistema na lista abaixo. No Windows, use o arquivo .msi."
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
