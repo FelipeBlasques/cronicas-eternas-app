@@ -15,45 +15,93 @@ const HOST_FOUNDRY: &str = "vtt.cronicaseternas.com";
 /// Avisa o portal de que este aplicativo sabe fazer o login no Foundry sozinho
 const SCRIPT_PORTAL: &str = "window.cronicasEternasApp = Object.freeze({ loginFoundry: true });";
 
-/// Faz o login na tela de entrada do Foundry. Se não conseguir, deixa a tela como está,
-/// com o usuário e a senha preenchidos quando possível.
+/// Faz o login na tela de entrada do Foundry: preenche usuário e senha e usa o próprio
+/// botão de entrar. Se a tela continuar no login, tenta o pedido direto. No pior caso,
+/// a tela fica preenchida para a pessoa só clicar em entrar.
 const SCRIPT_LOGIN: &str = r#"(async () => {
   const dados = __DADOS__;
-  const alvo = dados.usuario.trim().toLowerCase();
+  const nome = dados.usuario.trim();
+  const alvo = nome.toLowerCase();
   const esperar = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
-  const mesmoNome = (nome) => typeof nome === "string" && nome.trim().toLowerCase() === alvo;
+  const mesmoNome = (texto) => typeof texto === "string" && texto.trim().toLowerCase() === alvo;
+
+  // Espera a tela de login montar o formulário
+  let campoSenha = null;
+  for (let i = 0; i < 40 && !campoSenha; i++) {
+    campoSenha = document.querySelector('input[name="password"]');
+    if (!campoSenha) await esperar(250);
+  }
+  if (!campoSenha) return;
+  const form = campoSenha.form || document;
+
   const acharId = () => {
     const doJogo = window.game?.users?.find?.((u) => mesmoNome(u.name));
     if (doJogo) return doJogo.id;
     const dosDados = window.game?.data?.users?.find?.((u) => mesmoNome(u.name));
-    if (dosDados) return dosDados._id;
-    const opcao = [...document.querySelectorAll('select[name="userid"] option')].find((o) => mesmoNome(o.textContent));
-    return opcao ? opcao.value : null;
+    if (dosDados) return dosDados._id ?? dosDados.id;
+    const opcao = [...form.querySelectorAll("select option")].find((o) => mesmoNome(o.textContent));
+    return opcao?.value || null;
   };
-  let userid = null;
-  for (let i = 0; i < 40 && !userid; i++) {
-    userid = acharId();
-    if (!userid) await esperar(250);
+  let userId = acharId();
+  for (let i = 0; i < 12 && !userId; i++) {
+    await esperar(250);
+    userId = acharId();
   }
-  if (!userid) return;
-  try {
-    const resposta = await fetch(location.pathname, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "join", userid, password: dados.senha }),
-    });
-    const corpo = await resposta.json().catch(() => ({}));
-    if (corpo.status === "success") {
-      location.href = corpo.redirect || "/game";
-      return;
+
+  const preencher = (campo, valor) => {
+    if (!campo) return;
+    campo.focus();
+    campo.value = valor;
+    campo.dispatchEvent(new Event("input", { bubbles: true }));
+    campo.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  // Pedido direto ao Foundry, com os nomes de campo das versões antigas e da 14
+  const loginDireto = async () => {
+    try {
+      const corpo = { action: "join", username: nome, password: dados.senha };
+      if (userId) {
+        corpo.userId = userId;
+        corpo.userid = userId;
+      }
+      const resposta = await fetch(location.pathname, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
+      });
+      const resultado = await resposta.json().catch(() => ({}));
+      if (resultado.status === "success") location.href = resultado.redirect || "/game";
+    } catch (erro) {
+      console.warn("Login automático não funcionou:", erro);
     }
-  } catch (erro) {
-    console.warn("Login automático não funcionou:", erro);
-  }
-  const seletor = document.querySelector('select[name="userid"]');
-  const campoSenha = document.querySelector('input[name="password"]');
-  if (seletor) seletor.value = userid;
-  if (campoSenha) campoSenha.value = dados.senha;
+  };
+
+  // Versão 14: o usuário é digitado. Versões antigas: escolhido numa lista.
+  const campoNome = form.querySelector('input[name="username"]')
+    || form.querySelector('input[type="text"], input:not([type])');
+  const lista = form.querySelector('select[name="userid"], select[name="userId"]');
+  if (campoNome && campoNome !== campoSenha) preencher(campoNome, nome);
+  if (lista && userId) preencher(lista, userId);
+  preencher(campoSenha, dados.senha);
+
+  // Se o Foundry não cuidar do envio, impede o envio comum (que colocaria a senha no endereço)
+  let foundryCuidou = true;
+  window.addEventListener("submit", (evento) => {
+    if (!evento.defaultPrevented) {
+      evento.preventDefault();
+      foundryCuidou = false;
+    }
+  }, { once: true });
+
+  // Primeiro usa o próprio botão do Foundry, que monta o pedido do jeito que a versão espera
+  const botao = form.querySelector('button[type="submit"], button[name="join"], button:not([type])');
+  await esperar(300);
+  if (botao) botao.click();
+  else if (form.requestSubmit) form.requestSubmit();
+
+  if (!foundryCuidou) return loginDireto();
+  await esperar(3000);
+  if (location.pathname.endsWith("/join")) await loginDireto();
 })();"#;
 
 /// Login do Foundry esperando a janela do jogo chegar na tela de entrada
